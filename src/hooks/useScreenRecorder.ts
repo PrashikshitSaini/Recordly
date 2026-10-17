@@ -152,6 +152,61 @@ type UseScreenRecorderReturn = {
 	setCountdownDelay: (delay: number) => void;
 };
 
+type MicrophoneAudioData = { close: () => void };
+type MicrophoneTrackProcessor = {
+	readable: ReadableStream<MicrophoneAudioData>;
+};
+type MicrophoneTrackProcessorConstructor = new (init: {
+	track: MediaStreamTrack;
+}) => MicrophoneTrackProcessor;
+
+/**
+ * getUserMedia resolves before a USB microphone starts delivering samples.
+ * MediaRecorder's file timeline begins with the first delivered sample, so
+ * starting the video before that point makes the whole microphone track late.
+ * Wait for the first sample (bounded) so recorder.start() and the video share a
+ * real time zero.
+ */
+async function waitForFirstMicrophoneSample(track: MediaStreamTrack, timeoutMs = 4000) {
+	const Processor = (
+		globalThis as { MediaStreamTrackProcessor?: MicrophoneTrackProcessorConstructor }
+	).MediaStreamTrackProcessor;
+	if (!Processor) {
+		return false;
+	}
+
+	let processor: MicrophoneTrackProcessor;
+	try {
+		processor = new Processor({ track });
+	} catch {
+		return false;
+	}
+
+	const reader = processor.readable.getReader();
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const result = await Promise.race([
+			reader.read(),
+			new Promise<null>((resolve) => {
+				timeout = setTimeout(() => resolve(null), timeoutMs);
+			}),
+		]);
+		if (result && !result.done && result.value) {
+			result.value.close();
+			return true;
+		}
+		return false;
+	} catch {
+		return false;
+	} finally {
+		if (timeout) {
+			clearTimeout(timeout);
+		}
+		reader.releaseLock();
+		void processor.readable.cancel().catch(() => undefined);
+	}
+}
+
 function getErrorMessage(error: unknown) {
 	if (error instanceof Error && error.message) {
 		return error.message;
@@ -643,6 +698,16 @@ export function useScreenRecorder(): UseScreenRecorderReturn {
 			);
 			micFallbackRequestedConstraints.current = microphoneConstraints;
 			const micStream = await navigator.mediaDevices.getUserMedia(microphoneConstraints);
+			const microphoneTrack = micStream.getAudioTracks()[0];
+			if (microphoneTrack) {
+				const waitStartedAt = performance.now();
+				const ready = await waitForFirstMicrophoneSample(microphoneTrack);
+				console.info(
+					"[useScreenRecorder] Microphone sample ready:",
+					ready,
+					`${Math.round(performance.now() - waitStartedAt)}ms`,
+				);
+			}
 			micFallbackTrackSettings.current = createMicrophoneTrackSettingsSnapshot(micStream);
 			micFallbackAudioInputDevices.current = await createAudioInputDeviceSnapshot().catch(
 				() => null,

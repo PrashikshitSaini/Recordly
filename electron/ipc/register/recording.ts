@@ -1684,6 +1684,7 @@ export function registerRecordingHandlers(
 					...(Number.isFinite(startDelayMs) && (startDelayMs ?? 0) >= 0
 						? { startDelayMs: Math.round(startDelayMs ?? 0) }
 						: {}),
+					...(preRollMs > 0 ? { preRollMs: Math.round(preRollMs) } : {}),
 					...(typeof options?.browserMicrophoneProfile === "string"
 						? { browserMicrophoneProfile: options.browserMicrophoneProfile }
 						: {}),
