@@ -271,8 +271,6 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 		lastVideoPresentationTime = .zero
 		lastVideoDuration = .zero
 		startWindowValidationIfNeeded()
-		print("Recording started")
-		fflush(stdout)
 	}
 
 	func stopCapture() async throws -> String {
@@ -298,7 +296,6 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
 	func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of outputType: SCStreamOutputType) {
 		guard sessionStarted, sampleBuffer.isValid, isRecording else { return }
-		guard let presentationTime = adjustedPresentationTime(for: sampleBuffer, outputType: outputType) else { return }
 
 		if outputType == .screen {
 			guard let attachments = CMSampleBufferGetSampleAttachmentsArray(sampleBuffer, createIfNecessary: false) as? [[SCStreamFrameInfo: Any]],
@@ -311,8 +308,12 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 
 			guard let videoInput = videoInput, videoInput.isReadyForMoreMediaData else { return }
 
-			if firstSampleTime == .zero {
-				firstSampleTime = sampleBuffer.presentationTimeStamp
+			// Only a complete frame that the writer can accept may establish time
+			// zero. Announcing readiness here also anchors the renderer microphone
+			// pre-roll trim to the real first video frame.
+			guard let presentationTime = adjustedPresentationTime(for: sampleBuffer, outputType: outputType) else { return }
+			if frameCount > 0 && CMTimeCompare(presentationTime, lastVideoPresentationTime) <= 0 {
+				return
 			}
 
 			lastSampleBuffer = sampleBuffer
@@ -322,9 +323,19 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 				lastVideoPresentationTime = presentationTime
 				lastVideoDuration = sampleBuffer.duration
 				frameCount += 1
+				if frameCount == 1 {
+					print("Recording started")
+					fflush(stdout)
+				}
+			} else if frameCount == 0 {
+				// A failed append must not leave an empty interval before frame one.
+				firstSampleTime = .zero
 			}
 			return
 		}
+
+		guard frameCount > 0,
+			  let presentationTime = adjustedPresentationTime(for: sampleBuffer, outputType: outputType) else { return }
 
 		if outputType == .audio {
 			guard let systemAudioInput else { return }
