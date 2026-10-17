@@ -1625,6 +1625,7 @@ export function registerRecordingHandlers(
 						[
 							...(preRollMs > 0
 								? [
+										"asetpts=PTS-STARTPTS",
 										`atrim=start=${(preRollMs / 1000).toFixed(3)}`,
 										"asetpts=PTS-STARTPTS",
 									]
