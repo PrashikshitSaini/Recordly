@@ -25,4 +25,17 @@ describe("waitForNativeCaptureStart", () => {
 
 		await expect(ready).resolves.toBe(123456);
 	});
+
+	it("prefers the first-frame wall clock reported by the helper", async () => {
+		const child = new EventEmitter() as EventEmitter & {
+			stdout: EventEmitter;
+		};
+		child.stdout = new EventEmitter();
+		vi.spyOn(Date, "now").mockReturnValue(123456);
+
+		const ready = waitForNativeCaptureStart(child as never);
+		child.stdout.emit("data", Buffer.from("Recording started 111222\n"));
+
+		await expect(ready).resolves.toBe(111222);
+	});
 });

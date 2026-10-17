@@ -324,7 +324,14 @@ final class ScreenCaptureRecorder: NSObject, SCStreamOutput, SCStreamDelegate {
 				lastVideoDuration = sampleBuffer.duration
 				frameCount += 1
 				if frameCount == 1 {
-					print("Recording started")
+					// Report the wall-clock time at which this frame was captured,
+					// not when it finished travelling through the capture queue.
+					// The renderer trims the microphone pre-roll against this value,
+					// so queue/IPC latency must not leak into the A/V offset.
+					let now = CMClockGetTime(CMClockGetHostTimeClock())
+					let captureLatency = max(0, CMTimeGetSeconds(now - sampleBuffer.presentationTimeStamp))
+					let captureEpochMs = Int((Date().timeIntervalSince1970 * 1000).rounded() - captureLatency * 1000)
+					print("Recording started \(captureEpochMs)")
 					fflush(stdout)
 				}
 			} else if frameCount == 0 {

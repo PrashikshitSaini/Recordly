@@ -43,9 +43,15 @@ export function waitForNativeCaptureStart(process: ChildProcessWithoutNullStream
 		let stdoutBuffer = "";
 		const onStdout = (chunk: Buffer) => {
 			stdoutBuffer += chunk.toString();
-			if (stdoutBuffer.includes("Recording started")) {
+			const readiness = stdoutBuffer.match(/Recording started(?:\s+(\d+))?/);
+			if (readiness) {
 				cleanup();
-				resolve(Date.now());
+				const reportedCaptureMs = Number(readiness[1]);
+				resolve(
+					Number.isFinite(reportedCaptureMs) && reportedCaptureMs > 0
+						? reportedCaptureMs
+						: Date.now(),
+				);
 			}
 		};
 
